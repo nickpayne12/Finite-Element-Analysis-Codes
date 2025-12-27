@@ -430,8 +430,73 @@ class Material_model:
             young_modulus = self.inputs[0]
             nu = self.inputs[1]
             D = young_modulus/((1 + nu)*(1 - 2*nu))*np.array([[1.0 - nu, nu, 0.0], [nu, 1.0 - nu, 0.0], [0.0, 0.0, (1.0 - 2*nu)/2.0]])
-        if self.type == "strain locking":
-            pass
+        if self.type == "strain locking, plane strain": 
+            A, B, phi, E_1, E_2, nu_12, nu_23, G = self.inputs
+
+            c = np.cos(phi)
+            s = np.sin(phi)
+
+            s11 = S[0]
+            s22 = S[1]
+            s12 = S[2]
+            e11 = E[0]
+            e22 = E[1]
+            e33 = 0
+            e12 = E[2]
+
+            C_matrix = np.array([[ (E_1**2*(nu_23 - 1))/(2*E_2*nu_12**2 - E_1 + E_1*nu_23), -(E_1*E_2*nu_12)/(2*E_2*nu_12**2 - E_1 + E_1*nu_23), 0],
+                                 [-(E_1*E_2*nu_12)/(2*E_2*nu_12**2 - E_1 + E_1*nu_23), -(E_2*(- E_2*nu_12**2 + E_1))/((nu_23 + 1)*(2*E_2*nu_12**2 - E_1 + E_1*nu_23)),   0],
+                                 [0, 0, 2*G]])
+            
+            C11matrixbar = C_matrix[0,0]*c**4 + C_matrix[1,1]*s**4 + 2*(C_matrix[0,1]+C_matrix[2,2])*s**2*c**2
+            C12matrixbar = (C_matrix[0,0] + C_matrix[1,1] - 2*C_matrix[2,2])*s**2*c**2 + C_matrix[0,1]*(c**4 + s**4)
+            C16matrixbar = (C_matrix[0,0] - C_matrix[0,1] - C_matrix[2,2])*s*c**3 - (C_matrix[1,1] - C_matrix[0,1] - C_matrix[2,2])*s**3*c
+            C22matrixbar = C_matrix[0,0]*s**4 + C_matrix[1,1]*c**4 + 2*(C_matrix[0,1]+C_matrix[2,2])*s**2*c**2
+            C26matrixbar = (C_matrix[0,0] - C_matrix[0,1] - C_matrix[2,2])*c*s**3 - (C_matrix[1,1] - C_matrix[0,1] - C_matrix[2,2])*c**3*s
+            C66matrixbar = (C_matrix[0,0] + C_matrix[1,1] - 2*C_matrix[0,1]-2*C_matrix[2,2])*c**2*s**2 + C_matrix[2,2]*(c**4+s**4)
+
+            T = np.array([[c**2, s**2, 2*c*s], [s**2, c**2, -2*c*s], [-c*s, c*s, c**2-s**2]])
+            Tinv = np.array([[c**2, s**2, -2*c*s], [s**2, c**2, 2*c*s], [c*s, -c*s, c**2-s**2]])
+
+            sig_12 = np.array([[s11], [s22], [s12]])
+            eps_12A = np.array([[e11], [e22], [e12]])
+            
+            sig_np = Tinv@sig_12
+            eps_npA = Tinv@eps_12A
+            Bmat = C_matrix@eps_12A
+            sig_npmat = Tinv@np.array([[Bmat[0]], [Bmat[1]], [Bmat[2]]])
+            snnm = sig_npmat[0,0]
+
+            # Stiffness ratio to calculate stress partition approach:
+            snnf = snnm # Guess
+            error = 1
+            while error > 0.01:
+                # Cm = ((E_1**2*(nu_23 - 1))/(2*E_2*nu_12**2 - E_1 + E_1*nu_23));
+                Cm = C11matrixbar
+                Cf = (1/((A*B)/(B + (snnf - ((A - 1)*(B*(2*A - 1))**(1/2))/(2*A - 1))**2)**(3/2)))
+                snnfnew = (Cm/Cf + 1)*sig_np(1,1) - Cm/Cf*snnm
+                error = abs((snnfnew - snnf)/snnf)
+                snnf = snnfnew
+
+            Q11 = Cf
+            Q12 = 0
+            Q16 = 0
+            Q22 = 0
+            Q26 = 0
+            Q66 = 0
+
+            C11fbar = Q11*c**4 + Q22*s**4 + 2*(Q12 + 2*Q66)*c**2*s**2
+            C22fbar = Q11*s**4 + Q22*c**4 + 2*(Q12 + 2*Q66)*c**2*s**2
+            C12fbar = (Q11 + Q22 - 4*Q66)*c**2*s**2 + Q12*(c**4 + s**4)
+            C66fbar = (Q11 + Q22 - 2*Q12 - 2*Q66)*c**2*s**2 + Q66*(c**4 + s**4)
+            C16fbar = (Q11 - Q12 - 2*Q66)*c**3*s - (Q22 - Q12 - 2*Q66)*c*s**3
+            C26fbar = (Q11 - Q12 - 2*Q66)*c*s**3 - (Q22 - Q12 - 2*Q66)*c**3*s
+
+
+            C_fiber = np.array([[C11fbar, C12fbar, C16fbar], [C12fbar, C22fbar, C26fbar], [C16fbar, C26fbar, C66fbar]])
+
+            D = C_fiber + C_matrix
+
         return D
 
 class Global_K_matrix:
