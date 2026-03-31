@@ -463,10 +463,10 @@ class Material_model:
             
             sig_np = Tinv@sig_12
             eps_npA = Tinv@eps_12A
-            Bmat = C_matrix@eps_12A
-            sig_npmat = Tinv@np.array([[Bmat[0]], [Bmat[1]], [Bmat[2]]])
-            snnm = sig_npmat[0,0]
 
+            Bmat = C_matrix@eps_12A
+            sig_npmat = Tinv@Bmat
+            snnm = sig_npmat[0]
             # Stiffness ratio to calculate stress partition approach:
             snnf = snnm # Guess
             error = 1
@@ -474,7 +474,7 @@ class Material_model:
                 # Cm = ((E_1**2*(nu_23 - 1))/(2*E_2*nu_12**2 - E_1 + E_1*nu_23));
                 Cm = C11matrixbar
                 Cf = (1/((A*B)/(B + (snnf - ((A - 1)*(B*(2*A - 1))**(1/2))/(2*A - 1))**2)**(3/2)))
-                snnfnew = (Cm/Cf + 1)*sig_np(1,1) - Cm/Cf*snnm
+                snnfnew = (Cm/Cf + 1)*sig_np[0] - Cm/Cf*snnm
                 error = abs((snnfnew - snnf)/snnf)
                 snnf = snnfnew
 
@@ -493,7 +493,7 @@ class Material_model:
             C26fbar = (Q11 - Q12 - 2*Q66)*c*s**3 - (Q22 - Q12 - 2*Q66)*c**3*s
 
 
-            C_fiber = np.array([[C11fbar, C12fbar, C16fbar], [C12fbar, C22fbar, C26fbar], [C16fbar, C26fbar, C66fbar]])
+            C_fiber = np.array([[C11fbar.item(), C12fbar.item(), C16fbar.item()], [C12fbar.item(), C22fbar.item(), C26fbar.item()], [C16fbar.item(), C26fbar.item(), C66fbar.item()]])
 
             D = C_fiber + C_matrix
 
@@ -515,11 +515,13 @@ class Global_K_matrix:
     def build(self, S, E):
         """Constructs the global stiffness matrix."""
         self.K_global = np.zeros((self.nodes.shape[1]*2, self.nodes.shape[1]*2))
+        S = S.return_all()
+        E = E.return_all()
         for p in enumerate(self.mesh.elements):
             gauss_index = np.arange(4*p[0], 4*p[0]+4)
             index = self.DOF_mapping[p[0],:]
             for k in gauss_index:
-                D = self.material.D_matrix(S = S, E = E)
+                D = self.material.D_matrix(S[:,k], E[:,k])
                 B = self.mesh.B[:,:,k]
                 weight = self.mesh.gauss_points[2,k]
                 detJ = self.mesh.detJ[k]
@@ -737,7 +739,7 @@ class delta_Stress(Elemental_quantity):
         self.values['delS11'], self.values['delS22'], self.values['delS12'] = new_values
     def clear(self):
         self.values = {'delS11': np.zeros(self.length), 'delS22': np.zeros(self.length), 'delS12': np.zeros(self.length)}
-    def compute(self, S, delE):
+    def compute(self, S, delE, E):
         newS = np.zeros((3, self.length))
         material = self.mesh.material
         for k in enumerate(self.mesh.elements):
@@ -747,9 +749,11 @@ class delta_Stress(Elemental_quantity):
             index = [n1*2, n1*2+1, n2*2, n2*2+1, n3*2, n3*2+1, n4*2, n4*2+1]
             gauss_index = np.arange(4*i, 4*i+4)
             for k in gauss_index:
-                D = material.D_matrix()
+                D = material.D_matrix(S[:, k], E[:, k])
                 B = self.mesh.B[:,:,k]
-                newS[:, k] = D@delE[:, k]
+                # print(S[:,k])
+                # print(D)
+                newS[:, k] = D[:,:]@delE[:, k]
         self.values['delS11'], self.values['delS22'], self.values['delS12'] = newS
     def return_all(self):
         return np.array([self.values['delS11'], self.values['delS22'], self.values['delS12']])
@@ -874,8 +878,8 @@ class Standard(Solver):
         self.nS = Stress(self.mesh)
         self.nE = Strain(self.mesh)
 
-    def start(self, initial_stepsize = 0.1, end_steptime = 1):
-        tol = 0.01
+    def start(self, initial_stepsize = 1/500, end_steptime = 1):
+        tol = 0.0001
         stepsize = initial_stepsize
         steptime = initial_stepsize
         endtime = end_steptime
@@ -907,7 +911,7 @@ class Standard(Solver):
                 # print('ne', self.nE.values)
                 # print('delE', self.delE.values)
 
-                self.delS.compute(self.S.return_all(), self.delE.return_all())
+                self.delS.compute(self.S.return_all(), self.delE.return_all(), self.E.return_all())
                 self.nS.update(self.S.return_all() + self.delS.return_all())
                 # print('ns', self.nS.values)
                 # print('S', self.S.values)
@@ -1053,8 +1057,10 @@ mesher1.nodes[:,4] = np.array([[.6, .2]])
 
 mesh1 = Mesh()
 mesh1.make_mesh(mesher1)
-steel = Material_model([30e6, 0.30], "linear elastic, plane strain")
-mesh1.assign_material(steel)
+# steel = Material_model([30e6, 0.30], "linear elastic, plane strain")
+# mesh1.assign_material(steel)
+strainlock = Material_model([0.6, 1e13, np.deg2rad(90), 1e5, 0.1, 1e5, 0.1, 1e5], "strain locking, plane strain")
+mesh1.assign_material(strainlock)
 K = Global_K_matrix(mesh1)
 mesh1.plot()
 
@@ -1073,7 +1079,7 @@ BC1 = Boundary_condition(K)
 BC1.apply_BC(sidesurf, np.zeros(len(sidesurf)), 'U1')
 BC1.apply_BC(bottomsurf, np.zeros(len(sidesurf)), 'U2')
 
-F.apply_traction(topsurf1, -10000, 'y')
+F.apply_traction(topsurf1, 1e8, 'y')
              
 solution = Standard(K, T, F, BC1, S, E, U, mesh1)
 solution.start()
@@ -1085,8 +1091,12 @@ print('Elapsed time: ', f'{stop-start} seconds.')
 # S.compute(U.return_all())
 
 plot_result(mesh1, S, 'S22', U)
-plot_result(mesh1, S, 'S11', U)
-plot_result(mesh1, S, 'S12', U)
+# plot_result(mesh1, S, 'S11', U)
+# plot_result(mesh1, S, 'S12', U)
 
-plot_result(mesh1, U, 'U1', U=U)
-plot_result(mesh1, U, 'U2', U=U)
+plot_result(mesh1, E, 'E22', U)
+# plot_result(mesh1, E, 'E11', U)
+# plot_result(mesh1, E, 'E12', U)
+
+# plot_result(mesh1, U, 'U1', U=U)
+# plot_result(mesh1, U, 'U2', U=U)
