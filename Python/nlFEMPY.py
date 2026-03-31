@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from matplotlib.colors import BoundaryNorm
 from matplotlib.colors import ListedColormap
+from math import sqrt
 
 def r_theta(x: np.ndarray, y):
     """Returns polar coordinates r and theta for a given x and y pair."""
@@ -467,16 +468,41 @@ class Material_model:
             Bmat = C_matrix@eps_12A
             sig_npmat = Tinv@Bmat
             snnm = sig_npmat[0]
-            # Stiffness ratio to calculate stress partition approach:
             snnf = snnm # Guess
-            error = 1
-            while error > 0.01:
-                # Cm = ((E_1**2*(nu_23 - 1))/(2*E_2*nu_12**2 - E_1 + E_1*nu_23));
-                Cm = C11matrixbar
-                Cf = (1/((A*B)/(B + (snnf - ((A - 1)*(B*(2*A - 1))**(1/2))/(2*A - 1))**2)**(3/2)))
-                snnfnew = (Cm/Cf + 1)*sig_np[0] - Cm/Cf*snnm
-                error = abs((snnfnew - snnf)/snnf)
-                snnf = snnfnew
+            snnf = sig_np[0]
+            error = np.inf
+
+            # Stiffness ratio to calculate stress partition approach:
+            # while error > 0.01:
+            #     # Cm = ((E_1**2*(nu_23 - 1))/(2*E_2*nu_12**2 - E_1 + E_1*nu_23));
+            #     Cm = C11matrixbar
+            #     Cf = (1/((A*B)/(B + (snnf - ((A - 1)*(B*(2*A - 1))**(1/2))/(2*A - 1))**2)**(3/2)))
+            #     snnfnew = (Cm/Cf + 1)*sig_np[0] - Cm/Cf*snnm
+            #     error = abs((snnfnew - snnf)/snnf)
+            #     snnf = snnfnew
+
+
+            ## Newton method to find fiber stress given
+            f = lambda sig: A + A*(sig - sqrt(B*(2*A - 1))*(A - 1)/(2*A - 1))/sqrt(B + (sig - sqrt(B*(2*A - 1))*(A - 1)/(2*A - 1))**2) - 1 - eps_npA[0]
+            fprime = lambda sig: A*B*sqrt((B*(2*A - 1)**2 + (sig*(2*A - 1) - sqrt(B*(2*A - 1))*(A - 1))**2)/(2*A - 1)**2)*(2*A - 1)**4/(B*(2*A - 1)**2 + (sig*(2*A - 1) - sqrt(B*(2*A - 1))*(A - 1))**2)**2
+            xn = snnf
+            print("xn: ", xn)
+
+            while error > 1000:
+                fval = f(xn)
+                fprimeval = fprime(xn)
+                xnplus1 = xn - fval/fprimeval
+                error = abs(xnplus1 - xn)
+                print("error: ", error)
+                print("xn", xn)
+                print("xnplus1", xnplus1)
+                # print("eps_npA[0]", eps_npA[0])
+                # print("f: ", f(xn))
+                # print("fprime: ", fprime(xn))
+                xn = xnplus1
+
+            Cf = (1/((A*B)/(B + (xn - ((A - 1)*(B*(2*A - 1))**(1/2))/(2*A - 1))**2)**(3/2)))
+
 
             Q11 = Cf
             Q12 = 0
@@ -878,7 +904,7 @@ class Standard(Solver):
         self.nS = Stress(self.mesh)
         self.nE = Strain(self.mesh)
 
-    def start(self, initial_stepsize = 1/500, end_steptime = 1):
+    def start(self, initial_stepsize = 1/100, end_steptime = 1):
         tol = 0.0001
         stepsize = initial_stepsize
         steptime = initial_stepsize
@@ -1059,7 +1085,7 @@ mesh1 = Mesh()
 mesh1.make_mesh(mesher1)
 # steel = Material_model([30e6, 0.30], "linear elastic, plane strain")
 # mesh1.assign_material(steel)
-strainlock = Material_model([0.6, 1e13, np.deg2rad(90), 1e5, 0.1, 1e5, 0.1, 1e5], "strain locking, plane strain")
+strainlock = Material_model([0.55, 1e13, np.deg2rad(90), 1e5, 0.1, 1e5, 0.1, 1e5], "strain locking, plane strain")
 mesh1.assign_material(strainlock)
 K = Global_K_matrix(mesh1)
 mesh1.plot()
@@ -1095,8 +1121,8 @@ plot_result(mesh1, S, 'S22', U)
 # plot_result(mesh1, S, 'S12', U)
 
 plot_result(mesh1, E, 'E22', U)
-# plot_result(mesh1, E, 'E11', U)
-# plot_result(mesh1, E, 'E12', U)
+plot_result(mesh1, E, 'E11', U)
+plot_result(mesh1, E, 'E12', U)
 
-# plot_result(mesh1, U, 'U1', U=U)
-# plot_result(mesh1, U, 'U2', U=U)
+plot_result(mesh1, U, 'U1', U)
+plot_result(mesh1, U, 'U2', U)
