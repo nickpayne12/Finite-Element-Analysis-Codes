@@ -486,16 +486,16 @@ class Material_model:
             f = lambda sig: A + A*(sig - sqrt(B*(2*A - 1))*(A - 1)/(2*A - 1))/sqrt(B + (sig - sqrt(B*(2*A - 1))*(A - 1)/(2*A - 1))**2) - 1 - eps_npA[0]
             fprime = lambda sig: A*B*sqrt((B*(2*A - 1)**2 + (sig*(2*A - 1) - sqrt(B*(2*A - 1))*(A - 1))**2)/(2*A - 1)**2)*(2*A - 1)**4/(B*(2*A - 1)**2 + (sig*(2*A - 1) - sqrt(B*(2*A - 1))*(A - 1))**2)**2
             xn = snnf
-            print("xn: ", xn)
+            # print("xn: ", xn)
 
             while error > 1000:
                 fval = f(xn)
                 fprimeval = fprime(xn)
                 xnplus1 = xn - fval/fprimeval
                 error = abs(xnplus1 - xn)
-                print("error: ", error)
-                print("xn", xn)
-                print("xnplus1", xnplus1)
+                # print("error: ", error)
+                # print("xn", xn)
+                # print("xnplus1", xnplus1)f
                 # print("eps_npA[0]", eps_npA[0])
                 # print("f: ", f(xn))
                 # print("fprime: ", fprime(xn))
@@ -776,9 +776,6 @@ class delta_Stress(Elemental_quantity):
             gauss_index = np.arange(4*i, 4*i+4)
             for k in gauss_index:
                 D = material.D_matrix(S[:, k], E[:, k])
-                B = self.mesh.B[:,:,k]
-                # print(S[:,k])
-                # print(D)
                 newS[:, k] = D[:,:]@delE[:, k]
         self.values['delS11'], self.values['delS22'], self.values['delS12'] = newS
     def return_all(self):
